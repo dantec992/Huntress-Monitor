@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "HUNTRESS_API_KEY": "hk_b02aa7a059abc7aa30c9",
+    "HUNTRESS_API_SECRET": "hs_719dc9279962907f9412f90748f044dc",
+    "DATAVERSE_TENANT_ID": "682ceb18-a84d-4b9e-ad2b-518e83388d9a",
+    "DATAVERSE_CLIENT_ID": "35e32576-605e-44a7-9b57-0a69dd7a5198",
+    "DATAVERSE_CLIENT_SECRET": ".at8Q~5bIcJnU~eC2RqySXhEQ47Xgd_RFxtgwdmN",
+    "DATAVERSE_ENV_URL": "https://org71a75eae.crm.dynamics.com"
+  }
+}

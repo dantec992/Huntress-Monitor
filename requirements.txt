@@ -1,0 +1,5 @@
+azure-functions
+openai
+azure-identity
+azure-core
+requests
