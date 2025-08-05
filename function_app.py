@@ -6,6 +6,7 @@ import base64
 import json
 from msal import ConfidentialClientApplication
 from datetime import datetime
+import threading
 
 app = func.FunctionApp()
 
@@ -13,10 +14,12 @@ HUNTRESS_API_KEY = os.environ.get("HUNTRESS_API_KEY")
 HUNTRESS_API_SECRET = os.environ.get("HUNTRESS_API_SECRET")
 BASE_URL = "https://api.huntress.io/v1"
 
+
 def get_auth_header():
     raw = f"{HUNTRESS_API_KEY}:{HUNTRESS_API_SECRET}"
     encoded = base64.b64encode(raw.encode()).decode()
     return {"Authorization": f"Basic {encoded}"}
+
 
 def get_agents_by_org(org_id, headers):
     agents = []
@@ -42,35 +45,29 @@ def get_agents_by_org(org_id, headers):
 
     return agents
 
-@app.function_name(name="huntress_monitor")
-@app.route(route="huntress/monitor", auth_level=func.AuthLevel.FUNCTION)
-def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("Huntress monitoring triggered.")
 
+def run_sync():
     if not HUNTRESS_API_KEY or not HUNTRESS_API_SECRET:
-        return func.HttpResponse("Missing HUNTRESS_API_KEY or SECRET", status_code=500)
+        logging.error("Missing HUNTRESS_API_KEY or SECRET")
+        return
 
     try:
         headers = get_auth_header()
-
-        
         orgs = []
         org_url = f"{BASE_URL}/organizations"
         while org_url:
             resp = requests.get(org_url, headers=headers)
             if resp.status_code != 200:
-                return func.HttpResponse(f"Failed to get orgs: {resp.text}", status_code=resp.status_code)
+                logging.error(f"Failed to get orgs: {resp.text}")
+                return
             data = resp.json()
             orgs.extend(data.get("organizations", []))
             org_url = data.get("pagination", {}).get("next_page_url")
 
         if not orgs:
-            return func.HttpResponse(json.dumps({
-                "organization_count": 0, "agent_count": 0,
-                "organizations": [], "agents": []
-            }, indent=2), mimetype="application/json", status_code=200)
+            logging.warning("No organizations found.")
+            return
 
-        
         all_agents = []
         org_summaries = []
         agent_entries = []
@@ -89,14 +86,12 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
             })
 
             for agent in agents:
-                
                 healthy = (
                     agent.get("defender_status") == "Protected" and
-                    agent.get("defender_substatus") == "Up to date" and
-                    agent.get("defender_policy_status") == "Compliant" and
+                    #agent.get("defender_substatus") == "Up to date" and
+                    #agent.get("defender_policy_status") == "Compliant" and
                     agent.get("firewall_status") == "Enabled"
                 )
-
                 status = "Healthy" if healthy else "Unhealthy"
 
                 agent_entries.append({
@@ -118,18 +113,11 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
                     "mac_addresses": ", ".join(agent.get("mac_addresses", []))[:100]
                 })
 
-        payload = {
-            "organization_count": len(orgs),
-            "agent_count": len(all_agents),
-            "organizations": org_summaries,
-            "agents": agent_entries
-        }
-        # Dataverse sync
         TENANT_ID = os.getenv("DATAVERSE_TENANT_ID")
         CLIENT_ID = os.getenv("DATAVERSE_CLIENT_ID")
         CLIENT_SECRET = os.getenv("DATAVERSE_CLIENT_SECRET")
         ENV_URL = os.getenv("DATAVERSE_ENV_URL")
-        TABLE_NAME = "cr890_huntressagentses"  
+        TABLE_NAME = "cr890_huntressagentses"
 
         authority = f"https://login.microsoftonline.com/{TENANT_ID}"
         scope = [f"{ENV_URL}/.default"]
@@ -145,7 +133,7 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
             "Accept": "application/json"
         }
 
-        for agent in agent_entries[:15]:
+        for agent in agent_entries[:35]:
             agent_id = agent["agent_id"]
             entity = {
                 "cr890_agentid": str(agent_id),
@@ -171,7 +159,7 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
             if get_test.status_code == 200:
                 records = get_test.json().get('value', [])
                 if records:
-                    record_id = records[0]['cr890_huntressagentsid']  
+                    record_id = records[0]['cr890_huntressagentsid']
                     patch_url = f"{ENV_URL}/api/data/v9.2/{TABLE_NAME}({record_id})"
                     response = requests.patch(patch_url, headers=dv_headers, json=entity)
                 else:
@@ -184,11 +172,16 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
             else:
                 logging.error(f"❌ Sync failed ({agent_id}): {response.status_code} - {response.text}")
 
-
-        return func.HttpResponse(json.dumps(payload, indent=2, default=str),
-                                 mimetype="application/json", status_code=200)
-
     except Exception:
-        logging.exception("Unhandled error")
-        return func.HttpResponse("Internal server error", status_code=500)
-        
+        logging.exception("Unhandled error in run_sync")
+
+
+@app.function_name(name="huntress_monitor")
+@app.route(route="huntress/monitor", auth_level=func.AuthLevel.FUNCTION)
+def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Huntress monitoring triggered.")
+
+    thread = threading.Thread(target=run_sync)
+    thread.start()
+
+    return func.HttpResponse("Sync started.", status_code=202)
