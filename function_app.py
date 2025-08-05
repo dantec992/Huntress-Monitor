@@ -20,21 +20,26 @@ def get_auth_header():
 
 def get_agents_by_org(org_id, headers):
     agents = []
-    params = {
-        "organization_id": org_id,
-        "limit": 100
-    }
+    page = 1
+    per_page = 250
+
     while True:
+        params = {
+            "organization_id": org_id,
+            "limit": per_page,
+            "page": page
+        }
         resp = requests.get(f"{BASE_URL}/agents", headers=headers, params=params)
         if resp.status_code != 200:
             logging.error(f"Failed to get agents for org {org_id}: {resp.status_code} {resp.text}")
             break
         data = resp.json()
-        agents.extend(data.get("agents", []))
-        next_token = data.get("next_page_token")
-        if not next_token:
+        current_agents = data.get("agents", [])
+        agents.extend(current_agents)
+        if not current_agents or len(current_agents) < per_page:
             break
-        params["page_token"] = next_token
+        page += 1
+
     return agents
 
 @app.function_name(name="huntress_monitor")

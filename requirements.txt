@@ -3,3 +3,4 @@ openai
 azure-identity
 azure-core
 requests
+msal
