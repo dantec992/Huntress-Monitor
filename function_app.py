@@ -145,7 +145,7 @@ def monitor_huntress(req: func.HttpRequest) -> func.HttpResponse:
             "Accept": "application/json"
         }
 
-        for agent in agent_entries:
+        for agent in agent_entries[:15]:
             agent_id = agent["agent_id"]
             entity = {
                 "cr890_agentid": str(agent_id),
